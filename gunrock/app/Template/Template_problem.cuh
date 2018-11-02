@@ -321,10 +321,12 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
             auto &data_slice = data_slices[gpu][0];
             GUARD_CU(data_slice.Init(
                 this -> sub_graphs[gpu],
+                graph.nodes,
                 this -> num_gpus,
                 this -> gpu_idx[gpu],
                 target,
-                this -> flag));
+                this -> flag
+            ));
         } // end for (gpu)
 
         return retval;

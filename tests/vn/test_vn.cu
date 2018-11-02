@@ -14,67 +14,12 @@
 
 #include <gunrock/app/vn/vn_app.cu>
 #include <gunrock/app/test_base.cuh>
-#include <assert.h>
 
 using namespace gunrock;
 
 /******************************************************************************
 * Main
 ******************************************************************************/
-
-template <
-typename GraphT,
-typename ValueT = typename GraphT::ValueT,
-typename VertexT = typename GraphT::VertexT
->
-cudaError_t vn_set_srcs(
-    util::Parameters &parameters,
-    GraphT           &graph
-)
-{
-    /*
-        Helper for randomly seeding VN
-        This is slightly different from the standard `SetSrcs` function
-        because we have to set multiple batches of multiple seeds
-    */
-    cudaError_t retval = cudaSuccess;
-    std::string src = parameters.Get<std::string>("src");
-    std::vector<VertexT> srcs;
-    if (src == "random") {
-        int src_seed = parameters.Get<int>("src-seed");
-        int num_runs = parameters.Get<int>("num-runs");
-        int srcs_per_run = parameters.Get<int>("srcs-per-run");
-        if (!util::isValid(src_seed)) {
-            src_seed = time(NULL);
-            GUARD_CU(parameters.Set<int>("src-seed", src_seed));
-        }
-        srand(src_seed);
-
-        std::vector<VertexT> run_srcs;
-        for (int i = 0; i < num_runs; i++) {
-            for(int j = 0; j < srcs_per_run; j++) {
-                bool src_valid = false;
-                VertexT v;
-                while (!src_valid) {
-                    v = rand() % graph.nodes;
-                    if(std::find(run_srcs.begin(), run_srcs.end(), v) == run_srcs.end()) {
-                        if (graph.GetNeighborListLength(v) != 0) {
-                            src_valid = true;
-                        }
-                    }
-                }
-                srcs.push_back(v);
-                run_srcs.push_back(v);
-            }
-            run_srcs.clear();
-        }
-        GUARD_CU(parameters.Set<std::vector<VertexT>>("srcs", srcs));
-    } else {
-        GUARD_CU(parameters.Set("srcs", src));
-    }
-
-    return retval;
-}
 
 /**
  * @brief Enclosure to the main function
@@ -111,57 +56,43 @@ struct main_struct
         cpu_timer.Stop();
         parameters.Set("load-time", cpu_timer.ElapsedMillis());
 
-        // Load parameters
-        vn_set_srcs(parameters, graph);
-
-        std::vector<VertexT> srcs_vector = parameters.Get<std::vector<VertexT> >("srcs");
-        int total_num_srcs = srcs_vector.size();
-        int num_runs       = parameters.Get<int>("num-runs");
-        int srcs_per_run   = parameters.Get<int>("srcs-per-run");
-        if(srcs_per_run == util::PreDefinedValues<int>::InvalidValue) {
-            srcs_per_run = total_num_srcs;
-        }
-        assert(total_num_srcs == num_runs * srcs_per_run);
-        VertexT* all_srcs = &srcs_vector[0];
-
-        ValueT **ref_distances = NULL;
+        GUARD_CU(app::Set_Srcs    (parameters, graph));
+        ValueT  *ref_distances = NULL;
+        int num_srcs = 0;
         bool quick = parameters.Get<bool>("quick");
-        if (!quick) {
-
-            SizeT nodes = graph.nodes;
+        // compute reference CPU vn solution for source-distance
+        if (!quick)
+        {
             bool quiet = parameters.Get<bool>("quiet");
-            ref_distances = new ValueT*[num_runs];
-
-            for(int run_num = 0; run_num < num_runs; run_num++) {
-
-                VertexT *srcs = new VertexT[srcs_per_run];
-                for(SizeT i = 0; i < srcs_per_run; i++) {
-                    srcs[i] = all_srcs[run_num * srcs_per_run + i % total_num_srcs];
-                }
-
-                ref_distances[run_num] = new ValueT[nodes];
-
-                util::PrintMsg("__________________________", !quiet);
-                float elapsed = app::vn::CPU_Reference(
-                    graph.csr(),
-                    ref_distances[run_num],
-                    NULL,
-                    srcs,
-                    srcs_per_run,
-                    quiet,
-                    false
-                );
-
-                std::string src_msg = "";
-                for(SizeT i = 0; i < srcs_per_run; ++i) {
-                    src_msg += std::to_string(srcs[i]);
-                    if(i != srcs_per_run - 1) src_msg += ",";
-                }
-                util::PrintMsg("--------------------------\nRun "
-                    + std::to_string(run_num) + " elapsed: "
-                    + std::to_string(elapsed) + " ms, srcs = "
-                    + src_msg, !quiet);
+            
+            util::PrintMsg("Computing reference value ...", !quiet);
+            std::vector<VertexT> srcs_vector
+                = parameters.Get<std::vector<VertexT> >("srcs");
+            num_srcs = srcs_vector.size();
+            printf("srcs_vector | num_srcs=%d\n", num_srcs);
+            
+            VertexT *srcs = new VertexT[num_srcs];
+            for(SizeT i = 0; i < num_srcs; ++i) {
+                srcs[i] = srcs_vector[i];
+                printf("test_vn srcs[i]=%d\n", srcs[i]);
             }
+            
+            SizeT nodes = graph.nodes;
+            ref_distances = new ValueT[nodes];
+            
+            util::PrintMsg("__________________________", !quiet);
+            float elapsed = app::vn::CPU_Reference(
+                graph.csr(), ref_distances, NULL,
+                srcs, num_srcs, quiet, false);
+            
+            std::string src_msg = "";
+            for(SizeT i = 0; i < num_srcs; ++i) {
+                src_msg += std::to_string(srcs[i]);
+                if(i != num_srcs - 1) src_msg += ",";
+            }
+            util::PrintMsg("--------------------------\nRun 0 elapsed: "
+                + std::to_string(elapsed) + " ms, srcs = "
+                + src_msg, !quiet);
         }
 
         std::vector<std::string> switches{"mark-pred", "advance-mode"};
@@ -171,10 +102,8 @@ struct main_struct
                 return app::vn::RunTests(parameters, graph, ref_distances);
             }));
 
-        if (!quick) {
-            for(int run_num = 0; run_num < num_runs; run_num++) {
-                delete[] ref_distances[run_num]; ref_distances[run_num] = NULL;
-            }
+        if (!quick)
+        {
             delete[] ref_distances; ref_distances = NULL;
         }
         return retval;

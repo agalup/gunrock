@@ -7,9 +7,9 @@
 
 /**
  * @file
- * louvain_test.cu
+ * sssp_test.cu
  *
- * @brief Test related functions for Louvain
+ * @brief Test related functions for SSSP
  */
 
 #pragma once
@@ -1124,7 +1124,7 @@ double OMP_Reference(
 }
 
 /**
- * @brief Validation of Louvain results
+ * @brief Validation of SSSP results
  * @tparam     GraphT        Type of the graph
  * @tparam     ValueT        Type of the distances
  * @param[in]  parameters    Excution parameters

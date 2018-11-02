@@ -18,9 +18,7 @@ namespace gunrock {
 namespace util {
 
 template <typename T, int SIZE>
-struct VectorType{
- /*typedef UnknownType Type;*/
-};
+struct VectorType{ /*typedef UnknownType Type;*/};
 template <> struct VectorType<char         , 1> {typedef char1     Type;};
 template <> struct VectorType<char         , 2> {typedef char2     Type;};
 template <> struct VectorType<char         , 3> {typedef char3     Type;};
@@ -80,7 +78,6 @@ struct VecType
 {
     typedef typename VectorType<T, SIZE>::Type Type;
 };
-
 // DO NOT USE following definations
 // cuda buildin vector types are defined in <CUDA_DIR>/include/vector_types.h
 

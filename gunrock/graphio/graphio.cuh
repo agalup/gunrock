@@ -172,27 +172,6 @@ cudaError_t UseParameters(
         "Whether to remove self loops",
         __FILE__, __LINE__));
 
-    GUARD_CU(parameters.Use<bool>(
-        graph_prefix + "read-from-binary",
-        util::OPTIONAL_ARGUMENT | util::SINGLE_VALUE | util::OPTIONAL_PARAMETER,
-        true,
-        "Whether to read a graph from binary file, if supported and file available",
-        __FILE__, __LINE__));
-
-    GUARD_CU(parameters.Use<bool>(
-        graph_prefix + "store-to-binary",
-        util::OPTIONAL_ARGUMENT | util::SINGLE_VALUE | util::OPTIONAL_PARAMETER,
-        true,
-        "Whether to store the graph to binary file, if supported",
-        __FILE__, __LINE__));
-
-    GUARD_CU(parameters.Use<std::string>(
-        graph_prefix + "binary-prefix",
-        util::REQUIRED_ARGUMENT | util::SINGLE_VALUE | util::OPTIONAL_PARAMETER,
-        "",
-        "Prefix to store a binary copy of the graph, default is the value of " 
-        + graph_prefix + "-graph-file", __FILE__, __LINE__));
-
     GUARD_CU(market     ::UseParameters(parameters, graph_prefix));
     GUARD_CU(rgg        ::UseParameters(parameters, graph_prefix));
     GUARD_CU(small_world::UseParameters(parameters, graph_prefix));
@@ -223,12 +202,12 @@ cudaError_t LoadGraph(
 
     if (graph_type == "market")  // Matrix-market graph
     {
-        GUARD_CU(market::Load(parameters, graph, graph_prefix));
+        retval = market::Load(parameters, graph, graph_prefix);
     }
 
     else if (graph_type == "rmat")
     {
-        GUARD_CU(rmat::Load(parameters, graph, graph_prefix));
+        retval = rmat::Load(parameters, graph, graph_prefix);
     }
 
     /*else if (graph_type == "rmat" || graph_type == "grmat" || graph_type == "metarmat")  // R-MAT graph
@@ -380,12 +359,12 @@ cudaError_t LoadGraph(
     }*/
     else if (graph_type == "rgg")
     {
-        GUARD_CU(rgg::Load(parameters, graph, graph_prefix));
+        retval = rgg::Load(parameters, graph, graph_prefix);
     }
 
     else if (graph_type == "smallworld")
     {
-        GUARD_CU(small_world::Load(parameters, graph, graph_prefix));
+        retval = small_world::Load(parameters, graph, graph_prefix);
     }
 
     else if (graph_type == "by-pass")
@@ -394,18 +373,21 @@ cudaError_t LoadGraph(
 
     else
     {
-         return util::GRError(cudaErrorUnknown, "Unspecified graph type " + graph_type,
+        retval = util::GRError("Unspecified graph type " + graph_type,
             __FILE__, __LINE__);
     }
 
     if (!parameters.Get<bool>("quiet"))
     {
-        typedef typename GraphT::SizeT SizeT;
-        util::Array1D<SizeT, SizeT> histogram;
-        GUARD_CU(graph::GetHistogram  (graph, histogram));
-        GUARD_CU(graph::PrintHistogram(graph, histogram));
-        GUARD_CU(histogram.Release());
-        util::PrintMsg("");
+        /*csr_ref.GetAverageDegree();
+        csr_ref.PrintHistogram();
+        if (info["algorithm"].get_str().compare("SSSP") == 0)
+        {
+            csr_ref.GetAverageEdgeValue();
+            int max_degree;
+            csr_ref.GetNodeWithHighestDegree(max_degree);
+            printf("Maximum degree: %d\n", max_degree);
+        }*/
     }
     return retval;
 }

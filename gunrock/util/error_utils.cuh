@@ -92,7 +92,7 @@ gunrockError_t GRError(
 
 #define GUARD_CU(cuda_call) \
 { \
-    retval = gunrock::util::GRError(cuda_call, "error encountered", __FILE__, __LINE__); \
+    retval = cuda_call; \
     if (retval) return retval; \
 } \
 

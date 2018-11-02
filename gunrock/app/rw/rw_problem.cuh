@@ -68,12 +68,9 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
         // problem specific storage arrays:
         util::Array1D<SizeT, VertexT> walks;
         util::Array1D<SizeT, float> rand;
-        util::Array1D<SizeT, uint64_t> neighbors_seen;
-        util::Array1D<SizeT, uint64_t> steps_taken;
         int walk_length;
         int walks_per_node;
         int walk_mode;
-        bool store_walks;
         curandGenerator_t gen;
 
         /*
@@ -83,8 +80,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
         {
             walks.SetName("walks");
             rand.SetName("rand");
-            neighbors_seen.SetName("neighbors_seen");
-            steps_taken.SetName("steps_taken");
         }
 
         /*
@@ -105,8 +100,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
 
             GUARD_CU(walks.Release(target));
             GUARD_CU(rand.Release(target));
-            GUARD_CU(neighbors_seen.Release(target));
-            GUARD_CU(steps_taken.Release(target));
 
             GUARD_CU(BaseDataSlice ::Release(target));
             return retval;
@@ -129,29 +122,20 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
             int walk_length_,
             int walks_per_node_,
             int walk_mode_,
-            bool store_walks_,
             int seed)
         {
             cudaError_t retval  = cudaSuccess;
 
             GUARD_CU(BaseDataSlice::Init(sub_graph, num_gpus, gpu_idx, target, flag));
 
-            walk_length    = walk_length_;
+            walk_length = walk_length_;
             walks_per_node = walks_per_node_;
-            walk_mode      = walk_mode_;
-            store_walks    = store_walks_;
-
+            walk_mode = walk_mode_;
             curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
             curandSetPseudoRandomGeneratorSeed(gen, seed);
 
-            if(store_walks_) {
-                GUARD_CU(walks.Allocate(sub_graph.nodes * walk_length * walks_per_node, target));
-            } else {
-                GUARD_CU(walks.Allocate(1, target)); // Dummy allocation
-            }
+            GUARD_CU(walks.Allocate(sub_graph.nodes * walk_length * walks_per_node, target));
             GUARD_CU(rand.Allocate(sub_graph.nodes * walks_per_node, target));
-            GUARD_CU(neighbors_seen.Allocate(sub_graph.nodes * walks_per_node, target));
-            GUARD_CU(steps_taken.Allocate(sub_graph.nodes * walks_per_node, target));
 
             if (target & util::DEVICE) {
                 GUARD_CU(sub_graph.CsrT::Move(util::HOST, target, this -> stream));
@@ -168,40 +152,19 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
         {
             cudaError_t retval = cudaSuccess;
             SizeT nodes = this -> sub_graph -> nodes;
-            int walks_per_node = this -> walks_per_node;
-            int walk_length    = this -> walk_length;
 
             // Ensure data are allocated
-            if(this -> store_walks) {
-                GUARD_CU(walks.EnsureSize_(nodes * walk_length * walks_per_node, target));
-            } else {
-                GUARD_CU(walks.EnsureSize_(1, target));
-            }
-            GUARD_CU(rand.EnsureSize_(nodes * walks_per_node, target));
-            GUARD_CU(neighbors_seen.EnsureSize_(nodes * walks_per_node, target));
-            GUARD_CU(steps_taken.EnsureSize_(nodes * walks_per_node, target));
+            GUARD_CU(walks.EnsureSize_(nodes * this -> walk_length * this -> walks_per_node, target));
+            GUARD_CU(rand.EnsureSize_(nodes * this -> walks_per_node, target));
 
             // Reset data
-            if(this -> store_walks) {
-                GUARD_CU(walks.ForEach([]__host__ __device__ (VertexT &x){
-                   x = util::PreDefinedValues<VertexT>::InvalidValue;
-                }, nodes * walk_length * walks_per_node, target, this -> stream));
-            } else {
-                GUARD_CU(walks.ForEach([]__host__ __device__ (VertexT &x){
-                   x = util::PreDefinedValues<VertexT>::InvalidValue;
-                }, 1, target, this -> stream));
-            }
+            GUARD_CU(walks.ForEach([]__host__ __device__ (VertexT &x){
+               x = util::PreDefinedValues<VertexT>::InvalidValue;
+            }, nodes * this -> walk_length * this -> walks_per_node, target, this -> stream));
 
             GUARD_CU(rand.ForEach([]__host__ __device__ (float &x){
                x = (float)0.0;
-            }, nodes * walks_per_node, target, this -> stream));
-
-            GUARD_CU(neighbors_seen.ForEach([]__host__ __device__ (uint64_t &x){
-               x = (uint64_t)0;
-            }, nodes * walks_per_node, target, this -> stream));
-            GUARD_CU(steps_taken.ForEach([]__host__ __device__ (uint64_t &x){
-               x = (uint64_t)0;
-            }, nodes * walks_per_node, target, this -> stream));
+            }, nodes * this -> walks_per_node, target, this -> stream));
 
             return retval;
         }
@@ -212,7 +175,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
     int walk_length;
     int walks_per_node;
     int walk_mode;
-    bool store_walks;
     int seed;
 
     // ----------------------------------------------------------------
@@ -230,7 +192,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
         walk_length    = _parameters.Get<int>("walk-length");
         walks_per_node = _parameters.Get<int>("walks-per-node");
         walk_mode      = _parameters.Get<int>("walk-mode");
-        store_walks    = _parameters.Get<bool>("store-walks");
         seed           = _parameters.Get<int>("seed");
     }
 
@@ -267,8 +228,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
      */
     cudaError_t Extract(
         VertexT *h_walks,
-        uint64_t *h_neighbors_seen,
-        uint64_t *h_steps_taken,
         util::Location target = util::DEVICE)
     {
         cudaError_t retval = cudaSuccess;
@@ -277,38 +236,17 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
         if (this-> num_gpus == 1) {
             auto &data_slice = data_slices[0][0];
 
-            int walk_length    = this -> walk_length;
-            int walks_per_node = this -> walks_per_node;
-
             // Set device
             if (target == util::DEVICE) {
                 GUARD_CU(util::SetDevice(this->gpu_idx[0]));
-                if(this -> store_walks) {
-                    GUARD_CU(data_slice.walks.SetPointer(h_walks, nodes * walk_length * walks_per_node, util::HOST));
-                    GUARD_CU(data_slice.walks.Move(util::DEVICE, util::HOST));
-                }
-                GUARD_CU(data_slice.neighbors_seen.SetPointer(h_neighbors_seen, nodes * walks_per_node, util::HOST));
-                GUARD_CU(data_slice.neighbors_seen.Move(util::DEVICE, util::HOST));
-                GUARD_CU(data_slice.steps_taken.SetPointer(h_steps_taken, nodes * walks_per_node, util::HOST));
-                GUARD_CU(data_slice.steps_taken.Move(util::DEVICE, util::HOST));
-
+                GUARD_CU(data_slice.walks.SetPointer(h_walks, nodes * this -> walk_length * this -> walks_per_node, util::HOST));
+                GUARD_CU(data_slice.walks.Move(util::DEVICE, util::HOST));
             } else if (target == util::HOST) {
-                if(this -> store_walks) {
-                    GUARD_CU(data_slice.walks.ForEach(h_walks,
-                       []__host__ __device__ (const VertexT &device_val, VertexT &host_val){
-                           host_val = device_val;
-                       }, nodes * walk_length * walks_per_node, util::HOST));
-                }
-
-                GUARD_CU(data_slice.neighbors_seen.ForEach(h_neighbors_seen,
-                   []__host__ __device__ (const uint64_t &device_val, uint64_t &host_val){
+                // extract the results from single CPU
+                GUARD_CU(data_slice.walks.ForEach(h_walks,
+                   []__host__ __device__ (const VertexT &device_val, VertexT &host_val){
                        host_val = device_val;
-                   }, nodes * walks_per_node, util::HOST));
-
-                GUARD_CU(data_slice.steps_taken.ForEach(h_steps_taken,
-                   []__host__ __device__ (const uint64_t &device_val, uint64_t &host_val){
-                       host_val = device_val;
-                   }, nodes * walks_per_node, util::HOST));
+                   }, nodes * this -> walk_length * this -> walks_per_node, util::HOST));
             }
         } else { // num_gpus != 1
 
@@ -377,7 +315,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
                 this -> walk_length,
                 this -> walks_per_node,
                 this -> walk_mode,
-                this -> store_walks,
                 this -> seed
             ));
         }

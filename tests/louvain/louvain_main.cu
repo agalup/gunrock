@@ -7,9 +7,9 @@
 
 /**
  * @file
- * louvain_main.cu
+ * test_sssp.cu
  *
- * @brief Simple test driver program for Louvain
+ * @brief Simple test driver program for Gunrock template.
  */
 
 #include <gunrock/app/louvain/louvain_app.cu>
@@ -83,8 +83,7 @@ struct main_struct
             }
         }
 
-        std::vector<std::string> switches{"unify-segments", 
-            "advance-mode","omp-threads", "1st-th", "neighborcomm-th"};
+        std::vector<std::string> switches{"advance-mode","omp-threads", "1st-th"};
         GUARD_CU(app::Switch_Parameters(parameters, graph, switches,
             [&ref_communities](util::Parameters &parameters, GraphT &graph)
             {
@@ -157,7 +156,7 @@ int main(int argc, char** argv)
     return app::Switch_Types<
         app::VERTEXT_U32B | //app::VERTEXT_U64B |
         app::SIZET_U32B | //app::SIZET_U64B |
-        app::VALUET_F64B >
+        app::VALUET_F64B | app::DIRECTED | app::UNDIRECTED>
         (parameters, main_struct());
 }
 

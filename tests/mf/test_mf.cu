@@ -13,11 +13,12 @@
  */
 
 #include <gunrock/app/mf/mf_app.cu>
-#include <gunrock/app/mf/mf_helpers.cuh>
+#include <gunrock/app/mf/mf_init.cuh>
 #include <gunrock/app/test_base.cuh>
 
 #define debug_aml(a...)
 //#define debug_aml(a...) {printf(a); printf("\n");}
+
 
 using namespace gunrock;
 
@@ -44,13 +45,13 @@ struct main_struct
         typename SizeT,   // Use int as the graph size type
         typename ValueT>  // Use int as the value type
     cudaError_t operator()(util::Parameters &parameters, VertexT v, SizeT s, 
-        ValueT val)
+	    ValueT val)
     {
         typedef typename app::TestGraph<VertexT, SizeT, ValueT, 
-            graph::HAS_EDGE_VALUES | graph::HAS_CSR> GraphT;
-        typedef typename GraphT::CsrT CsrT;
+	  graph::HAS_EDGE_VALUES | graph::HAS_CSR> GraphT;
+	typedef typename GraphT::CsrT CsrT;
         cudaError_t retval = cudaSuccess;
-        bool quick = parameters.Get<bool>("quick");
+	bool quick = parameters.Get<bool>("quick");
         bool quiet = parameters.Get<bool>("quiet");
 	
 	//
@@ -111,11 +112,11 @@ struct main_struct
 
     util::Array1D<SizeT, VertexT> reverse;
     GUARD_CU(reverse.Allocate(u_graph.edges, util::HOST));
-    app::mf::InitReverse(u_graph, reverse.GetPointer(util::HOST));
+    app::mf::init_reverse(u_graph, reverse.GetPointer(util::HOST));
 
     if (not undirected){
         // Correct capacity values on reverse edges
-        app::mf::CorrectCapacity(u_graph, d_graph);
+        app::mf::correct_capacity_for_undirected_graph(u_graph, d_graph);
     }
 
 	//
@@ -144,7 +145,7 @@ struct main_struct
 
 	// Clean up
 	free(flow_edge);
-        GUARD_CU(reverse.Release());
+    //GUARD_CU(reverse.Release());
 	
         return retval;
     }

@@ -179,12 +179,6 @@ cudaError_t Switch_Parameters(
     {
         if (level == num_levels)
         {
-            std::string str = "";
-            for (int i = 0; i < num_levels; i++)
-                str = str + " " + switching_paras[i]
-                    + "=" + parameters.Get<std::string>(switching_paras[i]);
-            util::PrintMsg("==============================================");
-            util::PrintMsg(str);
             retval = op(parameters, graph);
             if (retval) break;
             level --;

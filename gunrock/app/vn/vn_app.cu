@@ -52,13 +52,6 @@ cudaError_t UseParameters(util::Parameters &parameters)
         "seed to generate random sources",
         __FILE__, __LINE__));
 
-    GUARD_CU(parameters.Use<int>(
-        "srcs-per-run",
-        util::REQUIRED_ARGUMENT | util::SINGLE_VALUE | util::OPTIONAL_PARAMETER,
-        util::PreDefinedValues<int>::InvalidValue,
-        "number of source nodes per run",
-        __FILE__, __LINE__));
-
     return retval;
 }
 
@@ -72,19 +65,15 @@ cudaError_t UseParameters(util::Parameters &parameters)
  * @param[in]  target        Whether to perform the vn
  * \return cudaError_t error message(s), if any
  */
-template <
-typename GraphT,
-typename ValueT = typename GraphT::ValueT,
-typename VertexT = typename GraphT::VertexT
->
+template <typename GraphT, typename ValueT = typename GraphT::ValueT>
 cudaError_t RunTests(
     util::Parameters &parameters,
     GraphT           &graph,
-    ValueT **ref_distances = NULL,
+    ValueT *ref_distances = NULL,
     util::Location target = util::DEVICE)
 {
     cudaError_t retval = cudaSuccess;
-    // typedef typename GraphT::VertexT VertexT;
+    typedef typename GraphT::VertexT VertexT;
     typedef typename GraphT::SizeT   SizeT;
     typedef Problem<GraphT  > ProblemT;
     typedef Enactor<ProblemT> EnactorT;
@@ -94,19 +83,10 @@ cudaError_t RunTests(
     // parse configurations from parameters
     bool quiet_mode = parameters.Get<bool>("quiet");
     bool mark_pred  = parameters.Get<bool>("mark-pred");
+    int  num_runs   = parameters.Get<int >("num-runs");
     std::string validation = parameters.Get<std::string>("validation");
-
-    // Load srcs
-    std::vector<VertexT> srcs_vector = parameters.Get<std::vector<VertexT> >("srcs");
-    int total_num_srcs = srcs_vector.size();
-    int num_runs       = parameters.Get<int>("num-runs");
-    int srcs_per_run   = parameters.Get<int>("srcs-per-run");
-    if(srcs_per_run == util::PreDefinedValues<int>::InvalidValue) {
-        srcs_per_run = total_num_srcs;
-    }
-    assert(total_num_srcs == num_runs * srcs_per_run);
-    VertexT* all_srcs = &srcs_vector[0];
-
+    std::vector<VertexT> srcs_vector = parameters.Get<std::vector<VertexT>>("srcs");
+    int  num_srcs   = srcs_vector.size();
     util::Info info("vn", parameters, graph); // initialize Info structure
 
     // Allocate host-side array (for both reference and GPU-computed results)
@@ -116,20 +96,24 @@ cudaError_t RunTests(
     // Allocate problem and enactor on GPU, and initialize them
     ProblemT problem(parameters);
     EnactorT enactor;
+    // util::PrintMsg("Before init");
     GUARD_CU(problem.Init(graph  , target));
     GUARD_CU(enactor.Init(problem, target));
+    // util::PrintMsg("After init");
     cpu_timer.Stop();
     parameters.Set("preprocess-time", cpu_timer.ElapsedMillis());
     //info.preprocess_time = cpu_timer.ElapsedMillis();
 
-    VertexT* srcs = new VertexT[srcs_per_run];
-    for (int run_num = 0; run_num < num_runs; ++run_num) {
-        for(SizeT i = 0; i < srcs_per_run; ++i) {
-            srcs[i] = all_srcs[run_num * srcs_per_run + i % total_num_srcs];
-        }
-
-        GUARD_CU(problem.Reset(srcs, srcs_per_run, target));
-        GUARD_CU(enactor.Reset(srcs, srcs_per_run, target));
+    // perform vn
+    VertexT *srcs = new VertexT[num_srcs];
+    for(SizeT i = 0; i < num_srcs; ++i) {
+        srcs[i] = srcs_vector[i];
+    }
+    
+    for (int run_num = 0; run_num < num_runs; ++run_num)
+    {
+        GUARD_CU(problem.Reset(srcs, num_srcs, target));
+        GUARD_CU(enactor.Reset(srcs, num_srcs, target));
         util::PrintMsg("__________________________", !quiet_mode);
 
         cpu_timer.Start();
@@ -138,9 +122,9 @@ cudaError_t RunTests(
         info.CollectSingleRun(cpu_timer.ElapsedMillis());
 
         std::string src_msg = "";
-        for(SizeT i = 0; i < srcs_per_run; ++i) {
+        for(SizeT i = 0; i < num_srcs; ++i) {
             src_msg += std::to_string(srcs[i]);
-            if(i != srcs_per_run - 1) src_msg += ",";
+            if(i != num_srcs - 1) src_msg += ",";
         }
         util::PrintMsg("--------------------------\nRun "
             + std::to_string(run_num) + " elapsed: "
@@ -148,24 +132,24 @@ cudaError_t RunTests(
             + src_msg + ", #iterations = " // TODO -- fix docs
             + std::to_string(enactor.enactor_slices[0]
                 .enactor_stats.iteration), !quiet_mode);
-
         if (validation == "each")
         {
             GUARD_CU(problem.Extract(h_distances, h_preds));
             SizeT num_errors = app::vn::Validate_Results(
                 parameters, graph, srcs, h_distances, h_preds,
-                ref_distances == NULL ? NULL : ref_distances[run_num],
+                ref_distances == NULL ? NULL : ref_distances,
                 NULL, false);
         }
     }
 
     cpu_timer.Start();
+    // Copy out results
     GUARD_CU(problem.Extract(h_distances, h_preds));
     if (validation == "last")
     {
         SizeT num_errors = app::vn::Validate_Results(
             parameters, graph, srcs, h_distances, h_preds,
-            ref_distances == NULL ? NULL : ref_distances[num_runs - 1]);
+            ref_distances == NULL ? NULL : ref_distances);
     }
 
     // compute running statistics
@@ -180,8 +164,6 @@ cudaError_t RunTests(
     GUARD_CU(problem.Release(target));
     delete[] h_distances  ; h_distances   = NULL;
     delete[] h_preds      ; h_preds       = NULL;
-    delete[] all_srcs     ; all_srcs      = NULL;
-    delete[] srcs         ; srcs          = NULL;
     cpu_timer.Stop(); total_timer.Stop();
 
     info.Finalize(cpu_timer.ElapsedMillis(), total_timer.ElapsedMillis());
@@ -231,7 +213,7 @@ double gunrock_vn(
     for(SizeT i = 0; i < num_srcs; ++i) {
         srcs[i] = srcs_vector[i];
     }
-
+    
     int num_runs = parameters.Get<int>("num-runs");
     for (int run_num = 0; run_num < num_runs; ++run_num)
     {
@@ -265,7 +247,7 @@ double gunrock_vn(
 //  * @param[out] distances   Return shortest distance to source per vertex
 //  * @param[out] preds       Return predecessors of each vertex
 //  * \return     double      Return accumulated elapsed times for all runs
-
+ 
 
 template <
     typename VertexT = int,
@@ -301,7 +283,7 @@ double vn(
     std::vector<VertexT> srcs;
     for (int i = 0; i < num_runs; i ++)
         srcs.push_back(sources[i]);
-
+    
     parameters.Set("srcs", srcs);
 
     bool quiet = parameters.Get<bool>("quiet");

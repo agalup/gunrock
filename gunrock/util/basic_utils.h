@@ -108,15 +108,7 @@ struct MagnitudeShiftOp<K, magnitude, false>
 /**
  * Null type
  */
-struct NullType {
-
-    template <typename T>
-    __host__ __device__ __forceinline__ 
-    NullType& operator =(const T&)
-    {
-        return *this;
-    }
-};
+struct NullType {};
 
 
 /**
@@ -180,25 +172,6 @@ struct If_Val<false, ThenVal, ElseVal>
 {
     // false
     static const unsigned int Value = ElseVal;
-};
-
-template <bool IF>
-struct If_Op
-{
-    template <typename Op>
-    static void Exec(Op op)
-    {
-    }
-};
-
-template <>
-struct If_Op<true>
-{
-    template <typename Op>
-    static void Exec(Op op)
-    {
-        op();
-    }
 };
 
 /**

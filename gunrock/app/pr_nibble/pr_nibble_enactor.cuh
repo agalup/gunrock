@@ -97,9 +97,6 @@ struct PRNibbleIterationLoop : public IterationLoopBase
         auto &src_neib = data_slice.src_neib;
         auto &num_ref_nodes = data_slice.num_ref_nodes;
 
-        auto &d_grad_scale = data_slice.d_grad_scale;
-        auto &d_grad_scale_value = data_slice.d_grad_scale_value;
-
         // --
         // Define operations
 
@@ -161,13 +158,6 @@ struct PRNibbleIterationLoop : public IterationLoopBase
             grad[idx]    = y[idx] * (1.0 + alpha) / 2;
         };
 
-        GUARD_CU(frontier.V_Q()->ForAll(
-            compute_op,
-            frontier.queue_length,
-            util::DEVICE,
-            oprtr_parameters.stream
-        ));
-
         // advance operation
         auto advance_op = [
             graph,
@@ -203,9 +193,25 @@ struct PRNibbleIterationLoop : public IterationLoopBase
             return true;
         };
 
+        // --
+        // Run
+
+        GUARD_CU(frontier.V_Q()->ForAll(
+            compute_op,
+            frontier.queue_length,
+            util::DEVICE,
+            oprtr_parameters.stream
+        ));
+
+        // GUARD_CU2(cudaDeviceSynchronize(),
+        //     "cudaDeviceSynchronize failed");
+
         GUARD_CU(oprtr::Advance<oprtr::OprtrType_V2V>(
             graph.csr(), frontier.V_Q(), frontier.Next_V_Q(),
             oprtr_parameters, advance_op, filter_op));
+
+        // GUARD_CU2(cudaDeviceSynchronize(),
+        //     "cudaDeviceSynchronize failed");
 
         if (oprtr_parameters.advance_mode != "LB_CULL" &&
             oprtr_parameters.advance_mode != "LB_LIGHT_CULL")
@@ -216,21 +222,21 @@ struct PRNibbleIterationLoop : public IterationLoopBase
                 oprtr_parameters, filter_op));
         }
 
+        // Get back the resulted frontier length
         GUARD_CU(frontier.work_progress.GetQueueLength(
             frontier.queue_index, frontier.queue_length,
             false, oprtr_parameters.stream, true));
 
         // Convergence checking
         ValueT grad_thresh = rho * alpha * (1 + eps);
+
+        auto &d_grad_scale = data_slice.d_grad_scale;
         GUARD_CU(cudaMemset(d_grad_scale, 0, 1 * sizeof(int)));
-        GUARD_CU(cudaMemset(d_grad_scale_value, 0, 1 * sizeof(ValueT)));
-        GUARD_CU2(cudaDeviceSynchronize(), "cudaDeviceSynchronize failed");
 
         auto convergence_op = [
             graph,
             grad,
             d_grad_scale,
-            d_grad_scale_value,
             grad_thresh,
             iteration,
             src_node,
@@ -240,16 +246,13 @@ struct PRNibbleIterationLoop : public IterationLoopBase
 
             ValueT v_dn_sqrt  = 1.0 / sqrt((ValueT)graph.GetNeighborListLength(v));
 
-            ValueT val = grad[v];
+            ValueT val = abs(grad[v] * v_dn_sqrt);
+
             if(v == src_node)
                 val -= (alpha / num_ref_nodes) * v_dn_sqrt;
 
-            val = abs(val * v_dn_sqrt);
-
-            atomicMax(d_grad_scale_value, val);
-            if(val > grad_thresh) {
+            if(val > grad_thresh)
                 atomicMax(d_grad_scale, 1);
-            }
         };
 
         GUARD_CU(frontier.V_Q()->ForEach(
@@ -259,11 +262,11 @@ struct PRNibbleIterationLoop : public IterationLoopBase
             oprtr_parameters.stream
         ));
 
-        GUARD_CU2(cudaDeviceSynchronize(), "cudaDeviceSynchronize failed");
+        cudaDeviceSynchronize();
         cudaMemcpy(data_slice.h_grad_scale, d_grad_scale, 1 * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(data_slice.h_grad_scale_value, d_grad_scale_value, 1 * sizeof(ValueT), cudaMemcpyDeviceToHost);
-        // printf("data_slice.h_grad_scale=%d | h_val=%0.17g | grad_thresh=%0.17g\n",
-        //     data_slice.h_grad_scale[0], data_slice.h_grad_scale_value[0], grad_thresh);
+
+        GUARD_CU2(cudaDeviceSynchronize(),
+            "cudaDeviceSynchronize failed");
 
         return retval;
     }
