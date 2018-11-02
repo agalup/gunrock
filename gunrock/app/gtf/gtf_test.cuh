@@ -371,6 +371,7 @@ void soft_thresh(ValueT *Y, const ValueT thresh, const int n){
         Y[i] = tmp + min(Y[i]+thresh, 0.0);
     }
 }
+
 /**
  * @brief Simple CPU-based reference GTF implementations
  *
@@ -557,7 +558,6 @@ cudaError_t CPU_Reference(
                 community_weights[comm] = 0;
             }
         }
-
         for (; comm < num_comms; comm++)
         {
             community_weights[comm] /= community_sizes  [comm];

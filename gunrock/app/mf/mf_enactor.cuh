@@ -403,10 +403,6 @@ struct MFIterationLoop : public IterationLoopBase
         GUARD_CU2(cudaStreamSynchronize(oprtr_parameters.stream),
                 "cudaStreamSynchronize failed");
 
-//	printf("new updated vertices %d (version after filter)\n", \
-		frontier.queue_length);\
-	fflush(stdout);
-
         data_slice.num_updated_vertices = frontier.queue_length;
 
         return retval;
@@ -459,7 +455,9 @@ struct MFIterationLoop : public IterationLoopBase
             // if (old_val <= in_val)
             //     return false;
             return true;
-        };
+        }
+
+        auto &data_slice = enactor -> problem -> data_slices[gpu_num][0];
 
         debug_aml("expand incoming\n");
         cudaError_t retval = BaseIterationLoop::template ExpandIncomingBase

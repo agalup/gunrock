@@ -23,10 +23,6 @@
 //#define debug_aml(a...) {printf("%s:%d ", __FILE__, __LINE__); printf(a);\
     printf("\n");}
 
-
-// #define MF_EPSILON 1e-6
-// #define MF_EPSILON_VALIDATE 1e-4
-
 namespace gunrock {
 namespace app {
 namespace mf {
@@ -44,6 +40,33 @@ cudaError_t UseParameters_problem(
     GUARD_CU(gunrock::app::UseParameters_problem(parameters));
 
     return retval;
+}
+
+template <typename GraphT, typename VertexT>
+void relabeling(GraphT graph, VertexT sink, VertexT* h_height){
+    typedef typename GraphT::CsrT CsrT;
+    std::queue<VertexT> que;
+    que.push(sink);
+    auto height = (VertexT)0;
+    while (! que.empty()){
+        auto v = que.front(); que.pop();
+        if (h_height[v] > (VertexT)0)
+            continue;
+        h_height[v] = height;
+        //printf("h_height[%d] = %d\n", v, height);
+        ++height;
+        auto e_start = graph.CsrT::GetNeighborListOffset(v);
+        auto num_neighbors = graph.CsrT::GetNeighborListLength(v);
+        auto e_end = e_start + num_neighbors;
+        for (auto e = e_start; e < e_end; ++e){
+            auto neighbor = graph.CsrT::GetEdgeDest(e);
+            //printf("%d->%d\n", v, neighbor);
+            if (h_height[neighbor] > (VertexT)0 or neighbor == sink)
+            continue;
+            que.push(neighbor);
+        }
+    }
+    return;
 }
 
 /**
@@ -121,7 +144,6 @@ struct Problem : ProblemBase<_GraphT, _FLAG>
 	    queue	    .SetName("queue"	      );
 	
 	    mark	    .SetName("mark"	      );
-
         }
 
         /*

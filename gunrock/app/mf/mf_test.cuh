@@ -70,6 +70,7 @@ void DisplaySolution(GraphT graph, ValueT* h_flow, VertexT* reverse,
 	    from source to sink is " + std::to_string(flow_incoming_sink), 
 	    true, false);
 }
+
 /**
  * @brief For given vertex v, find neighbor which the smallest height.  
  *
@@ -108,6 +109,7 @@ VertexT find_lowest(GraphT graph, VertexT x, VertexT* height, ValueT* flow,
     }
     return lowest_id;
 }
+
 /**
   * @brief Relabel: increases height of given vertex
   *
@@ -139,6 +141,7 @@ bool relabel(GraphT graph, VertexT x, VertexT* height, ValueT* flow,
     }
     return false;
 }
+
 /**
   * @brief Push: transfers flow from given vertex to neighbors in residual 
   *	   network which are lower than it.
@@ -182,6 +185,7 @@ bool push(GraphT& graph, VertexT x, ValueT* excess, VertexT* height,
     }
     return false;
 }
+
 /**
   * @brief Push relabel reference algorithm
   *
@@ -515,7 +519,7 @@ double CPU_Reference(
     cpu_timer.Start();
 
     maxflow = max_flow(graph, flow, excess, height, src, sin, reverse);
-    
+
     cpu_timer.Stop();
     elapsed = cpu_timer.ElapsedMillis();
 
