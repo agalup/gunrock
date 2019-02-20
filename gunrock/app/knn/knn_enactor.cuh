@@ -157,7 +157,7 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
     GUARD_CU(util::cubSegmentedSortPairs(cub_temp_storage, distances,
                                          distances_out, keys, keys_out, edges,
                                          nodes, graph.CsrT::row_offsets, 0,
-                                         std::ceil(std::log2(nodes)), stream));
+                                         std::ceil(std::log2(nodes)), stream, true));
 
     // Get reverse keys_out array
     GUARD_CU(keys.ForAll(
@@ -166,22 +166,46 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
         },
         edges, target, stream));
 
+    GUARD_CU(knns.ForAll(
+                [nodes, graph] __host__ __device__ (SizeT *k, const SizeT &pos){
+                printf("debug: number of nodes = %d\n", nodes);
+                for (int tested_node = 0; tested_node < nodes; ++tested_node){
+                    //auto tested_node = 62734;
+                    auto e_start = graph.CsrT::GetNeighborListOffset(tested_node);
+                    auto num_neighbors = graph.CsrT::GetNeighborListLength(tested_node);
+                    auto e_end = e_start + num_neighbors;
+                    printf("neighbors of thread %d\n", tested_node);
+                    for (int e = e_start; e != e_end; ++e){
+                    auto m = graph.CsrT::GetEdgeDest(e);
+                    printf("%d ", m);
+                    }
+                    printf("\n");
+                }
+                }, 1, target, stream));
+
     // Choose k nearest neighbors for each node
     GUARD_CU(knns.ForAll(
         [graph, k, keys, keys_out, nodes] __host__ __device__(
             SizeT * knns_, const SizeT &src) {
-          auto pos = src / nodes;
-          auto i = src % nodes;
+          auto pos = src % nodes;
+          auto i = src % k;
+          if (src == 0){
+            printf("i = %d, pos = %d, k = %d\n", i, pos, k); 
+          }
           // go to first nearest neighbor
           auto e_start = graph.CsrT::GetNeighborListOffset(pos);
           auto num_neighbors = graph.CsrT::GetNeighborListLength(pos);
-          if (i < k && i < num_neighbors) {
+          if (i < num_neighbors) {
             auto e = e_start + i;
             auto m = graph.CsrT::GetEdgeDest(keys_out[keys[e]]);
+            if (util::isValid(knns_[k * pos + i]))
+                printf("for src = %d, and id = %d is again\n", src, k * pos + i);
             knns_[k * pos + i] = m;
+            if (k * pos + i < 100)
+                printf("(src %d) knns[%d] = %d\n", src, k * pos + i, m);
           }
         },
-        nodes * nodes, target, stream));
+        nodes * k, target, stream));
 
     if (snn) {
       // SNN density of each point

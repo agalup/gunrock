@@ -60,10 +60,10 @@ double CPU_Reference(
   struct Point {
     VertexT x;
     SizeT e_id;
-    VertexT dist;
+    ValueT dist;
 
     Point() {}
-    Point(VertexT X, SizeT E_id, VertexT Dist) : x(X), e_id(E_id), dist(Dist) {}
+    Point(VertexT X, SizeT E_id, ValueT Dist) : x(X), e_id(E_id), dist(Dist) {}
   };
 
   struct comp {
@@ -122,6 +122,18 @@ double CPU_Reference(
     auto num = graph.CsrT::GetNeighborListLength(x);
     auto x_end = x_start + num;
     std::sort(distance + x_start, distance + x_end, comp());
+  }
+
+  for (int tested_node = 0; tested_node < nodes; ++tested_node){
+  //    auto tested_node = 62734;
+      auto e_start = graph.CsrT::GetNeighborListOffset(tested_node);
+      auto num_neighbors = graph.CsrT::GetNeighborListLength(tested_node);
+      auto e_end = e_start + num_neighbors;
+      printf("sorted neighbors of thread %d\n", tested_node);
+      for (int x = e_start; x < e_end; ++x) {
+          printf("%d ", graph.column_indices[distance[x].e_id]);
+      }
+      printf("\n");
   }
 
   // Debug
@@ -276,6 +288,8 @@ typename GraphT::SizeT Validate_Results(util::Parameters &parameters,
 
   if (quick) return num_errors;
 
+  printf("Validate results start, num_errors so far %d\n", num_errors);
+
   for (SizeT v = 0; v < graph.nodes; ++v) {
     auto v_start = graph.CsrT::GetNeighborListOffset(v);
     auto num = graph.CsrT::GetNeighborListLength(v);
@@ -284,11 +298,13 @@ typename GraphT::SizeT Validate_Results(util::Parameters &parameters,
     int i = 0;
     for (SizeT neighbor = v_start; neighbor < v_end && i < k; ++neighbor, ++i) {
       if (h_knns[v * k + i] != ref_knns[v * k + i]) {
-        debug("[%d] %d != %d\n", i, h_knns[i], ref_knns[i]);
+         // if (v*k + i < 100)
+          //    printf("knns[%d] %d != %d\n", v*k+i, h_knns[v*k+i], ref_knns[v*k+i]);
         ++num_errors;
       }
     }
   }
+  printf("Validate results stop, num_errors so far %d\n", num_errors);
 
   if (num_errors > 0) {
     util::PrintMsg(std::to_string(num_errors) + " errors occurred in KNN.",
