@@ -137,8 +137,11 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
                            const SizeT &edge_id, const VertexT &input_item,
                            const SizeT &input_pos, SizeT &output_pos) -> bool {
       // Calculate distance between src to edge vertex ref: (x,y)
-      VertexT distance = (src - ref_src) * (src - ref_src) +
-                         (dest - ref_dest) * (dest - ref_dest);
+      ValueT x = (ValueT)(src - ref_src);
+      ValueT y = (ValueT)(dest - ref_dest);
+      ValueT distance = (x * x) + (y * y);
+      if (distance < 0)
+        printf("(%d, %d) - (%d, %d) distance is %ld\n", src, dest, ref_src, ref_dest, distance);
 
       // struct Point()
       keys[edge_id] = edge_id;
@@ -165,9 +168,10 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
           k[keys_out[pos]] = pos;
         },
         edges, target, stream));
-
+/*
+   //debug only
     GUARD_CU(knns.ForAll(
-                [nodes, graph] __host__ __device__ (SizeT *k, const SizeT &pos){
+                [nodes, graph, distances] __host__ __device__ (SizeT *k, const SizeT &pos){
                 printf("debug: number of nodes = %d\n", nodes);
                 for (int tested_node = 0; tested_node < nodes; ++tested_node){
                     //auto tested_node = 62734;
@@ -176,22 +180,19 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
                     auto e_end = e_start + num_neighbors;
                     printf("neighbors of thread %d\n", tested_node);
                     for (int e = e_start; e != e_end; ++e){
-                    auto m = graph.CsrT::GetEdgeDest(e);
-                    printf("%d ", m);
+                        auto m = graph.CsrT::GetEdgeDest(e);
+                        printf("%d(%ld) ", m, distances[e]);
                     }
                     printf("\n");
                 }
                 }, 1, target, stream));
-
+*/
     // Choose k nearest neighbors for each node
     GUARD_CU(knns.ForAll(
         [graph, k, keys, keys_out, nodes] __host__ __device__(
             SizeT * knns_, const SizeT &src) {
           auto pos = src % nodes;
           auto i = src % k;
-          if (src == 0){
-            printf("i = %d, pos = %d, k = %d\n", i, pos, k); 
-          }
           // go to first nearest neighbor
           auto e_start = graph.CsrT::GetNeighborListOffset(pos);
           auto num_neighbors = graph.CsrT::GetNeighborListLength(pos);
@@ -201,8 +202,8 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
             if (util::isValid(knns_[k * pos + i]))
                 printf("for src = %d, and id = %d is again\n", src, k * pos + i);
             knns_[k * pos + i] = m;
-            if (k * pos + i < 100)
-                printf("(src %d) knns[%d] = %d\n", src, k * pos + i, m);
+            //if (k * pos + i < 100)
+            //    printf("(src %d) knns[%d] = %d\n", src, k * pos + i, m);
           }
         },
         nodes * k, target, stream));
@@ -212,13 +213,14 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
       auto density_op =
           [graph, nodes, knns, k, eps, snn_density, min_pts] __host__
           __device__(VertexT * v_q, const SizeT &pos) {
-            auto src = pos / nodes;
-            auto i = pos % nodes;
+            auto src = pos % nodes;
+            auto i = pos % k;
+            if (src == 0)
+                printf("src = %d, density starts\n", src); 
             auto src_neighbors = graph.CsrT::GetNeighborListLength(src);
             auto src_start = graph.CsrT::GetNeighborListOffset(src);
             auto src_end = src_start + src_neighbors;
             if (src_neighbors < k) return;
-            if (i >= k) return;
 
             // chose i nearest neighbor
             auto neighbor = knns[src * k + i];
@@ -247,7 +249,7 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
 
       // Find density of each point
       GUARD_CU(
-          frontier.V_Q()->ForAll(density_op, nodes * nodes, target, stream));
+          frontier.V_Q()->ForAll(density_op, nodes * k, target, stream));
 
       // Find core points
       GUARD_CU(core_point_mark_0.ForAll(

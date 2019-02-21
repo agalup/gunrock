@@ -68,7 +68,7 @@ struct Problem : ProblemBase<_GraphT, _FLAG> {
   struct DataSlice : BaseDataSlice {
     // struct Point()
     util::Array1D<SizeT, SizeT> keys;
-    util::Array1D<SizeT, VertexT> distances;
+    util::Array1D<SizeT, ValueT> distances;
     util::Array1D<SizeT, SizeT> core_point_mark_0;
     util::Array1D<SizeT, SizeT> core_point_mark;
     util::Array1D<SizeT, SizeT> core_points;

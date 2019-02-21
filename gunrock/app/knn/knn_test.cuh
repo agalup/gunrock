@@ -109,8 +109,9 @@ double CPU_Reference(
     auto x_end = x_start + num;
     for (SizeT i = x_start; i < x_end; ++i) {
       VertexT y = graph.column_indices[i];
-      VertexT dist =
-          (x - point_x) * (x - point_x) + (y - point_y) * (y - point_y);
+      ValueT d1 = (ValueT)(x - point_x);
+      ValueT d2 = (ValueT)(y - point_y);
+      ValueT dist = d1*d1 + d2*d2;
       distance[i] = Point(x, i, dist);
     }
   }
@@ -124,6 +125,8 @@ double CPU_Reference(
     std::sort(distance + x_start, distance + x_end, comp());
   }
 
+  /*
+  //debug only
   for (int tested_node = 0; tested_node < nodes; ++tested_node){
   //    auto tested_node = 62734;
       auto e_start = graph.CsrT::GetNeighborListOffset(tested_node);
@@ -131,10 +134,11 @@ double CPU_Reference(
       auto e_end = e_start + num_neighbors;
       printf("sorted neighbors of thread %d\n", tested_node);
       for (int x = e_start; x < e_end; ++x) {
-          printf("%d ", graph.column_indices[distance[x].e_id]);
+          printf("%d(%lld) ", graph.column_indices[distance[x].e_id], distance[x].dist);
       }
       printf("\n");
   }
+  */
 
   // Debug
 #if KNN_DEBUG
