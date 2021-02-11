@@ -3,71 +3,72 @@
 import sys, getopt
 from ctypes import *
 
-### load gunrock shared library - libgunrock
-gunrock = cdll.LoadLibrary('../build/lib/libgunrock.so')
-### read in input CSR arrays from files
-
-labels_file = "../dataset/small/stars_2total_separate"
-datatest = open(labels_file, "r")
-
-line = datatest.readline()
-(labels_no, dim) = line.split()
-
-#print("line: ", line)
-#print("number of lines ", labels_no)
-#print("dimension ", dim)
-#array = [[int(x) for x in line.split()] for line in datatest]
-#print(array)
-
-datatest.close()
-
-### input data
-labels = labels_file.encode('utf-8')
-k = 5
-epsilon = 1
-min_pts = 1
-
-### output data
-clusters = pointer((c_int * int(labels_no))())
-clusters_counter = pointer(c_int(0))
-core_points_counter = pointer(c_int(0))
-noise_points_counter = pointer(c_int(0))
-
-print ('run gunrock snn')
-### call gunrock function on device
-elapsed = gunrock.snn(labels, k, epsilon, min_pts, clusters, clusters_counter, core_points_counter, noise_points_counter)
-
-### sample results
-print ('elapsed: ' + str(elapsed))
+def Usage():
+    print("python snn.py --market --labels=<filepath> --k=<int> --eps=<int> --min-pts=<int>")
 
 def read_input(argv):
-    labels_file = ''
+    labels = ''
     k = 0
-    epsilon = 0
+    eps = 0
     min_pts = 0
+    n = 0
+    dim = 0
+
     try:
         opts, args = getopt.getopt(argv, 'm:l:k:e:m', ['market=', 'labels=', 'k=', 'eps=', 'min-pts='])
     except getopt.GetoptError:
+        Usage()
         print(argv)
         print("error")
         sys.exit(2)
     
+    print(argv)
     for opt, arg in opts:
-        if opt == "--labels":
-            print("labels file:", arg)
+        print(arg)
+        if opt in ("--labels"):
             labels_file = arg
+            datatest = open(labels_file, "r")
+            line = datatest.readline()
+            (n, dim) = line.split()
+            datatest.close()
+            
+            ### input data
+            #print("labels_file: ", labels_file)
+            labels = labels_file.encode('utf-8')
+            print("labels: ", labels)
+
         elif opt == "--k":
-            print("k: ", arg)
             k = arg
         elif opt == "--eps":
-            print("eps: ", arg)
             eps = arg
         elif opt == "--min-pts":
-            print("min-pts: ", arg)
             min_pts = arg
+    
+    return(labels, n, dim, k, eps, min_pts)
+
+def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
+    ### output data
+    clusters = pointer((c_int * int(n))())
+    clusters_counter = pointer(c_int(0))
+    core_points_counter = pointer(c_int(0))
+    noise_points_counter = pointer(c_int(0))
+    k_ptr = pointer((c_int)(int(k)))
+    eps_ptr = pointer((c_int)(int(eps)))
+    min_pts_ptr = pointer((c_int)(int(min_pts)))
+    
+    print ('run snn(', labels, k, eps, min_pts, ')')
+    ### call gunrock function on device
+    elapsed = gunrock.snn(labels, k_ptr, eps_ptr, min_pts_ptr, clusters, clusters_counter, core_points_counter, noise_points_counter)
+    
+    ### sample results
+    print ('elapsed: ' + str(elapsed))
 
 def main(argv):
-    read_input(argv)
+    ### load gunrock shared library - libgunrock
+    gunrock = cdll.LoadLibrary('../build/lib/libgunrock.so')
+    (labels, n, dim, k, eps, min_pts) = read_input(argv)
+    print("labels: ", labels)
+    run_snn(gunrock, labels, n, dim, k, eps, min_pts)
     
 
 if __name__ == "__main__":
