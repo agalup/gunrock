@@ -9,9 +9,9 @@
 int main(int argc, char *argv[]) {
   ////////////////////////////////////////////////////////////////////////////
 
-  int k = 4;
-  int eps = 5;
-  int min_pts = 5;
+  int k = 5;
+  int eps = 1;
+  int min_pts = 1;
 
   char* labels = "../dataset/small/stars_2total_separate";
   int items_scanned = 0, num_labels = 0, dim = 0;
