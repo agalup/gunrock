@@ -46,6 +46,13 @@
     #include <faiss/gpu/utils/Select.cuh>
 #endif
 
+//#define SNN_APP_DEBUG 1
+#ifdef SNN_APP_DEBUG
+    #define debug(a) printf(a)
+#else
+    #define debug(a) 
+#endif
+
 
 namespace gunrock {
 namespace app {
@@ -158,8 +165,6 @@ cudaError_t RunTests(
     util::Location target) {
   cudaError_t retval = cudaSuccess;
 
-  printf("RunTest(%d, %d, %d, %d)\n", num_points, k, eps, min_pts);
-
   //typedef typename GraphT::VertexT VertexT;
   typedef typename GraphT::ValueT ValueT;
   typedef Problem<GraphT> ProblemT;
@@ -204,7 +209,8 @@ cudaError_t RunTests(
             std::to_string(enactor.enactor_slices[0].enactor_stats.iteration),
         !quiet_mode);
 
-    if (validation == "each") {
+    if (validation == "each" && 
+	ref_cluster && ref_core_point_counter && ref_noise_point_counter && ref_cluster_counter) {
       GUARD_CU(problem.Extract(num_points, k, h_cluster, h_core_point_counter,
                   h_noise_point_counter, h_cluster_counter));
       SizeT num_errors = Validate_Results(parameters, graph, h_cluster,
@@ -220,7 +226,8 @@ cudaError_t RunTests(
 
   GUARD_CU(problem.Extract(num_points, k, h_cluster, h_core_point_counter, 
               h_noise_point_counter, h_cluster_counter));
-  if (validation == "last") {
+  if (validation == "last" &&
+      ref_cluster && ref_core_point_counter && ref_noise_point_counter && ref_cluster_counter) {
     SizeT num_errors = Validate_Results(parameters, graph, h_cluster,
                                 h_core_point_counter, h_noise_point_counter, 
                                 h_cluster_counter,
@@ -346,10 +353,10 @@ cudaError_t RunKNN(util::Parameters& parameters, const SizeT knn_version,
 
 
 template <typename ValueT = double, typename SizeT = int, typename VertexT = int>
-double snn(const char* labels, const SizeT k, 
+cudaError_t snn(const std::string labels, const SizeT k, 
             const SizeT eps, const SizeT min_pts, SizeT *h_cluster, 
             SizeT *h_cluster_counter, SizeT *h_core_point_counter, 
-            SizeT *h_noise_point_counter, SizeT knn_version){
+            SizeT *h_noise_point_counter, SizeT knn_version=1){
     
     // Setup parameters
     gunrock::util::Parameters parameters("snn");
@@ -367,23 +374,23 @@ double snn(const char* labels, const SizeT k,
     cudaError_t retval = cudaSuccess;
     retval = gunrock::graphio::labels::Read(parameters, points);
     if (retval){
-        gunrock::util::PrintMsg("Reading error\n");
-        printf("reading error\n");
+        gunrock::util::PrintMsg("Reading error");
         return retval;
     }
    
-    printf("Reading dones\n");
     // Check the input labels
     SizeT num_points = parameters.Get<SizeT>("n");
     SizeT dim = parameters.Get<SizeT>("dim");
 
+#ifdef SNN_APP_DEBUG
     for (int i=0; i<num_points; ++i){
-        printf("%d: ", i);
+        debug("%d: ", i);
         for (int j=0; j<dim; ++j){
-            printf("%lf ", points[i*dim +j]);
+            debug("%lf ", points[i*dim +j]);
         }
-        printf("\n");
+        debug("\n");
     }
+#endif
 
     if (k >= num_points){
         printf("k = %d > num_points %d, dones\n", k, num_points);
@@ -391,38 +398,46 @@ double snn(const char* labels, const SizeT k,
 
     // Run KNN
     SizeT* h_knns = (SizeT*) malloc(sizeof(SizeT)*num_points*k);
-    gunrock::app::snn::RunKNN(parameters, knn_version, num_points, 
-        dim, k, points, h_knns);
+    GUARD_CU(gunrock::app::snn::RunKNN(parameters, knn_version, num_points, 
+        dim, k, points, h_knns));
 
-        for (int i=0; i<num_points; ++i){
-            printf("%d: ", i);
-            for (int j=0; j<k; ++j){
-                printf("%d ", h_knns[i*k +j]);
-            }
-            printf("\n");
+#ifdef SNN_APP_DEBUG
+    debug("Run KNN results: \n");
+    for (int i=0; i<num_points; ++i){
+        debug("%d: ", i);
+        for (int j=0; j<k; ++j){
+            debug("%d ", h_knns[i*k +j]);
         }
+        debug("\n");
+    }
+#endif
 
     // Run SNN
     typedef typename gunrock::app::TestGraph<
         VertexT, SizeT, ValueT, gunrock::graph::HAS_CSR> GraphT;
     GraphT graph;
     // Result on GPU
+    /*
     h_cluster = (SizeT*)malloc(sizeof(SizeT) * num_points);
     h_core_point_counter = (SizeT*)malloc(sizeof(SizeT));
     h_noise_point_counter = (SizeT*)malloc(sizeof(SizeT));
     h_cluster_counter = (SizeT*)malloc(sizeof(SizeT));
+    */
 
-    gunrock::app::snn::RunTests(parameters, graph, num_points, k, 
+    GUARD_CU(gunrock::app::snn::RunTests(parameters, graph, num_points, k, 
                                 eps, min_pts, h_knns, h_cluster, (SizeT*)NULL,
                                 h_core_point_counter, (SizeT*)NULL,
                                 h_noise_point_counter, (SizeT*)NULL,
                                 h_cluster_counter, (SizeT*)NULL, 
-                                gunrock::util::DEVICE);
+                                gunrock::util::DEVICE));
 
-    printf("Core Points: %d\n", *h_core_point_counter);
-    printf("Noise Points: %d\n", *h_noise_point_counter);
-    printf("Cluster Counter: %d\n", *h_cluster_counter);
-    
+#ifdef SNN_APP_DEBUG
+    debug("Core Points: %d\n", *h_core_point_counter);
+    debug("Noise Points: %d\n", *h_noise_point_counter);
+    debug("Cluster Counter: %d\n", *h_cluster_counter);
+#endif
+
+    return retval;
 }
 
 /*
@@ -441,10 +456,19 @@ double snn(const char* labels_file, const int* k, const int* eps,
             const int* min_pts, int *clusters, 
             int *clusters_counter, int *core_points_counter, 
             int *noise_points_counter){
-    printf("call snn %s %d %d %d\n", labels_file, *k, *eps, *min_pts);
-    return snn(labels_file, *k, *eps, *min_pts, clusters, 
-                clusters_counter, core_points_counter, 
-                noise_points_counter, 1); 
+    std::string labels(labels_file);
+    int K = *k;
+    int Eps = *eps;
+    int Min_pts = *min_pts;
+    gunrock::util::CpuTimer cpu_timer;
+    cpu_timer.Start();
+    cudaError_t retval = snn(labels, K, Eps, Min_pts, clusters, clusters_counter, 
+		    core_points_counter, noise_points_counter, 1);
+    if (retval){
+	gunrock::util::GRError("gunrock.snn returns error");
+    }
+    cpu_timer.Stop();
+    return cpu_timer.ElapsedMillis();
 }
 
 // Leave this at the end of the file
