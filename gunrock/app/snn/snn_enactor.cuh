@@ -31,8 +31,8 @@
 #include <gunrock/app/knn/knn_enactor.cuh>
 #include <gunrock/app/knn/knn_test.cuh>
 
-#define SNN_ASSERT 1
-#define SNN_DEBUG 1
+//#define SNN_ASSERT 1
+//#define SNN_DEBUG 1
 #ifdef SNN_DEBUG
 #define debug(a...) printf(a)
 #else
@@ -183,7 +183,7 @@ struct snnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
     GUARD_CU2(util::SegmentedSort(knns, knns_sorted, num_points*k,
                 num_points, offsets, /* int begin_bit = */ 0, 
                 /* int end_bit = */ sizeof(SizeT) * 8,
-                stream, true), "Segmented sort faile.");
+                stream), "Segmented sort faile.");
     // Do not remove cudaDeviceSynchronize, CUB is running on different stream and Device synchronization is required
     GUARD_CU2(cudaStreamSynchronize(stream), "cudaDeviceSynchronize failed.");
 
