@@ -312,7 +312,7 @@ struct snnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
     // Do not remove, needed by Move
     GUARD_CU2(cudaStreamSynchronize(stream), "cudaStreamSynchronize failed");
 
-    printf("GPU number of core points found: %d\n", core_points_counter[0]);
+    //printf("GPU number of core points found: %d\n", core_points_counter[0]);
 
 #ifdef SNN_DEBUG
     // DEBUG ONLY: write down core points
