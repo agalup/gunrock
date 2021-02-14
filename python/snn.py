@@ -18,13 +18,9 @@ def read_input(argv):
         opts, args = getopt.getopt(argv, 'm:l:k:e:m', ['market=', 'labels=', 'k=', 'eps=', 'min-pts='])
     except getopt.GetoptError:
         Usage()
-        print(argv)
-        print("error")
         sys.exit(2)
     
-    print(argv)
     for opt, arg in opts:
-        print(arg)
         if opt in ("--labels"):
             labels_file = arg
             datatest = open(labels_file, "r")
@@ -33,9 +29,7 @@ def read_input(argv):
             datatest.close()
             
             ### input data
-            #print("labels_file: ", labels_file)
             labels = labels_file.encode('utf-8')
-            print("labels: ", labels)
 
         elif opt == "--k":
             k = arg
@@ -56,18 +50,21 @@ def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
     eps_ptr = pointer((c_int)(int(eps)))
     min_pts_ptr = pointer((c_int)(int(min_pts)))
     
-    print ('run snn(', labels, k, eps, min_pts, ')')
     ### call gunrock function on device
-    elapsed = gunrock.snn(labels, k_ptr, eps_ptr, min_pts_ptr, clusters, clusters_counter, core_points_counter, noise_points_counter)
+    elapsed = gunrock.snn(labels, k_ptr, eps_ptr, min_pts_ptr, 
+            clusters, clusters_counter, core_points_counter, 
+            noise_points_counter)
     
     ### sample results
-    print ('elapsed: ' + str(elapsed))
+    print ('elapsed: ', elapsed)
+    print ('number of clusters: ', clusters_counter.contents.value)
+    print ('number of core points: ', core_points_counter.contents.value)
+    print ('number of noise points: ', noise_points_counter.contents.value)
 
 def main(argv):
     ### load gunrock shared library - libgunrock
     gunrock = cdll.LoadLibrary('../build/lib/libgunrock.so')
     (labels, n, dim, k, eps, min_pts) = read_input(argv)
-    print("labels: ", labels)
     run_snn(gunrock, labels, n, dim, k, eps, min_pts)
     
 
