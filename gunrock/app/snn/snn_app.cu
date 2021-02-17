@@ -46,11 +46,14 @@
     #include <faiss/gpu/utils/Select.cuh>
 #endif
 
-//#define SNN_APP_DEBUG 1
+#define SNN_APP_DEBUG 1
 #ifdef SNN_APP_DEBUG
-    #define debug(a) printf(a)
+    int print_max_n = 20;
+    int print_max_k = 5;
+    int print_max_dim = 5;
+    #define debug(a...) printf(a)
 #else
-    #define debug(a) 
+    #define debug(a...) 
 #endif
 
 
@@ -383,12 +386,12 @@ cudaError_t snn(const std::string labels, const SizeT k,
     SizeT dim = parameters.Get<SizeT>("dim");
 
 #ifdef SNN_APP_DEBUG
-    for (int i=0; i<num_points; ++i){
+    for (int i=0; i<(num_points < print_max_n ? num_points : print_max_n); ++i){
         debug("%d: ", i);
-        for (int j=0; j<dim; ++j){
+        for (int j=0; j<(dim < print_max_dim ? dim : print_max_dim); ++j){
             debug("%lf ", points[i*dim +j]);
         }
-        debug("\n");
+        debug("... \n");
     }
 #endif
 
@@ -403,9 +406,9 @@ cudaError_t snn(const std::string labels, const SizeT k,
 
 #ifdef SNN_APP_DEBUG
     debug("Run KNN results: \n");
-    for (int i=0; i<num_points; ++i){
+        for (int i=0; i<(num_points < print_max_n ? num_points : print_max_n); ++i){
         debug("%d: ", i);
-        for (int j=0; j<k; ++j){
+        for (int j=0; j<(k < print_max_k ? k : print_max_k); ++j){
             debug("%d ", h_knns[i*k +j]);
         }
         debug("\n");
@@ -435,6 +438,9 @@ cudaError_t snn(const std::string labels, const SizeT k,
     debug("Core Points: %d\n", *h_core_point_counter);
     debug("Noise Points: %d\n", *h_noise_point_counter);
     debug("Cluster Counter: %d\n", *h_cluster_counter);
+    for (int i=0; i<(num_points < print_max_n ? num_points : print_max_n); ++i){
+		debug("cluster[%d] = %d\n", i, h_cluster[i]);
+    }
 #endif
 
     return retval;
@@ -468,7 +474,8 @@ double snn(const char* labels_file, const int* k, const int* eps,
 	gunrock::util::GRError("gunrock.snn returns error");
     }
     cpu_timer.Stop();
-    return cpu_timer.ElapsedMillis();
+    auto elapsed = cpu_timer.ElapsedMillis();
+    return elapsed;
 }
 
 // Leave this at the end of the file
