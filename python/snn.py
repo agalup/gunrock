@@ -1,15 +1,22 @@
 ### sample python interface - pagerank
 
-import sys, getopt
+import sys, getopt, os, time
 import ctypes
 from ctypes import *
-from numpy import *
 
-#rmse
 from pandas import DataFrame
 import statsmodels.api as sm
+from numpy import *
 import numpy as np
+
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+
+import plotly.express as px
+import plotly
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def Usage():
     print("python snn.py --market=1 --labels=<filepath> --k=<int> --eps=<int> --min-pts=<int>")
@@ -41,8 +48,10 @@ def read_input(argv):
             eps = arg
         elif opt == "--min-pts":
             min_pts = arg
-    
-    return(labels_file, k, eps, min_pts)
+
+    filename = os.path.basename(labels_file)
+    name = os.path.splitext(filename)[0] 
+    return(labels_file, name, k, eps, min_pts)
 
 def read_labels(labels_file):
     datatest = open(labels_file, "r")
@@ -94,11 +103,11 @@ def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
     return clusters
 
 def assign_consecutive_labels(clusters, n):
-
     # Assigne consecutive numbers starting from 1 to the clusters with the exception of noise points
     print (clusters)
     cluster_dict = {}
     np_counter = 1
+    noise_points = False
     for x in range(n):
         if clusters[0][x] > -1:
             if not clusters[0][x] in cluster_dict.keys():
@@ -107,8 +116,12 @@ def assign_consecutive_labels(clusters, n):
                 np_counter += 1
             else:
                 clusters[0][x] = cluster_dict[clusters[0][x]]
+        else:
+            noise_points = True
+    if noise_points:
+        np_counter += 1
     print("clusters ", cluster_dict)
-    return (clusters)
+    return (clusters, np_counter-1)
 
 def compute_rmse(labels, clusters, n, dim):
     ### RMSE algo
@@ -143,20 +156,134 @@ def compute_rmse(labels, clusters, n, dim):
     for x in range(limit):
         print(x, "prediction: ", predictions[x], "is: ", str(clusters[0][x]))
 
+    return (df, data_columns)
+
+def visualization(df, data_columns, filename, num_clusters, dim):
+    np.random.seed(42)
+    rndperm = np.random.permutation(df.shape[0])
+    print("shape: ", df.shape[0])
+    features = data_columns[2:]
+
+    #pca = PCA(n_components=3)
+    #pca_result = pca.fit_transform(df[features].values)
+    #df['pca-one'] = pca_result[:,0]
+    #df['pca-two'] = pca_result[:,1]
+    #df['pca-three'] = pca_result[:,2]
+    #fig = plt.figure(figsize=(16,10))
+    #print("number of colors ", num_clusters)
+    #sns.scatterplot(x="pca-one", y="pca-two", hue="cluster_id", 
+    #        palette=sns.color_palette("hls", n_colors=num_clusters),
+    #        data=df.loc[rndperm,:],
+    #        legend="full",
+    #        alpha=0.3
+    #        )
+    #fig.savefig(filename+str(k)+".png")
+
+    N = 10000
+    if N > df.shape[0]:
+        N = df.shape[0]
+    n_components = 50
+    if dim < n_components:
+        n_components=dim
+    df_subset = df.loc[rndperm[:N],:].copy()
+    data_subset = df_subset[features].values
+
+    # counting the number of clusters in the subset data
+    clusters_subset = df_subset['cluster_id'].values
+    number_of_colors = 0
+    cluster_dict = {} 
+    for i in clusters_subset:
+        if not i in cluster_dict.keys():
+            cluster_dict[i] = i
+            number_of_colors += 1
+    print("number of colors: ", number_of_colors)
+    
+    # First compute PCA 50 components on data subset
+    pca = PCA(n_components=n_components)
+    pca_result = pca.fit_transform(data_subset)
+    df_subset['pca-one'] = pca_result[:,0]
+    df_subset['pca-two'] = pca_result[:,1]
+    df_subset['pca-three'] = pca_result[:,2]
+    print('Explained variation per principal component: {}'.format(pca.explained_variance_ratio_))
+    #fig = plt.figure(figsize=(16,10))
+    #sns.scatterplot(
+    #    x="pca-one", y="pca-two",
+    #    hue="y",
+    #    palette=sns.color_palette("hls", n_colors=num_clusters),
+    #    data=df.loc[rndperm,:],
+    #    legend="full",
+    #    alpha=0.3
+    #    )
+    #fig.savefig(filename+'_pca'+str(n_components)+'.png')
+  
+    # TSNE 2 components on data subset
+    time_start = time.time()
+    tsne = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=300)
+    tsne_pca_results = tsne.fit_transform(data_subset)
+    print('t-SNE data subset done, elapsed time: {} seconds'.format(time.time()-time_start))
+    df_subset['tsne-2d-one'] = tsne_pca_results[:,0]
+    df_subset['tsne-2d-two'] = tsne_pca_results[:,1]
+
+    # TSNE 2 components on pca_result
+    time_start = time.time()
+    tsne = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=300)
+    tsne_pca_results = tsne.fit_transform(pca_result)
+    print('t-SNE pca_result done, elapsed time: {} seconds'.format(time.time()-time_start))
+
+    tsne_pca_one = 'tsne-pca'+str(n_components)+'-one'
+    tsne_pca_two = 'tsne-pca'+str(n_components)+'-two'
+    df_subset[tsne_pca_one] = tsne_pca_results[:,0]
+    df_subset[tsne_pca_two] = tsne_pca_results[:,1]
+
+    fig2 = plt.figure(figsize=(16,10))
+    ax1 = plt.subplot(1, 3, 1)
+    sns.scatterplot(
+        x="pca-one", y="pca-two",
+        hue="cluster_id",
+        palette=sns.color_palette("hls", n_colors=number_of_colors),
+        data=df_subset,
+        legend="full",
+        alpha=0.3,
+        ax=ax1
+    )
+    ax2 = plt.subplot(1, 3, 2)
+    sns.scatterplot(
+        x="tsne-2d-one", y="tsne-2d-two",
+        hue="cluster_id",
+        palette=sns.color_palette("hls", n_colors=number_of_colors),
+        data=df_subset,
+        legend="full",
+        alpha=0.3,
+        ax=ax2
+    )
+    ax3 = plt.subplot(1, 3, 3)
+    sns.scatterplot(
+        x=tsne_pca_one, y=tsne_pca_two,
+        hue="cluster_id",
+        palette=sns.color_palette("hls", n_colors=number_of_colors),
+        data=df_subset,
+        legend="full",
+        alpha=0.3,
+        ax=ax3
+    )
+    fig2.savefig(filename+'_pca'+str(n_components)+'_tsne2'+'.png')
+    
 
 def main(argv):
     ### load gunrock shared library - libgunrock
     gunrock = cdll.LoadLibrary('../build/lib/libgunrock.so')
     ### read input variables for SNN: labels file path, k, eps, min-pts
-    (labels_file, k, eps, min_pts) = read_input(argv)
+    (labels_file, filename, k, eps, min_pts) = read_input(argv)
     ### read labels, n, dim
     (labels_path, labels, n, dim) = read_labels(labels_file)
     ### run SNN Gunrock
     clusters = run_snn(gunrock, labels_path, n, dim, k, eps, min_pts)
     ### assign consecutive cluster labels except of noise points
-    clusters = assign_consecutive_labels(clusters, n)
+    (clusters, num_clusters) = assign_consecutive_labels(clusters, n)
     ### run Ordinary Least Squares estimation, compute RMSE
-    compute_rmse(labels, clusters, n, dim)
+    (df, data_columns) = compute_rmse(labels, clusters, n, dim)
+    ### run TSNE
+    visualization(df, data_columns, filename+str(k), num_clusters, dim)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
