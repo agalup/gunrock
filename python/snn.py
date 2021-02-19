@@ -19,16 +19,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 def Usage():
-    print("python snn.py --market=1 --labels=<filepath> --k=<int> --eps=<int> --min-pts=<int>")
+    print("python snn.py --market=1 --labels=<filepath> --k=<int> --eps=<int> --min-pts=<int> --target=<filepath>")
 
 def read_input(argv):
     labels_file = ''
+    target_file = ''
     k = 0
     eps = 0
     min_pts = 0
     
     try:
-        opts, _ = getopt.getopt(argv, 'm:l:k:e:m', ['market=', 'labels=', 'k=', 'eps=', 'min-pts='])
+        opts, _ = getopt.getopt(argv, 'm:l:k:e:m:t', ['market=', 'labels=', 'k=', 'eps=', 'min-pts=', 'target='])
     except getopt.GetoptError:
         print(getopt.GetoptError, "cause error")
         Usage()
@@ -48,25 +49,35 @@ def read_input(argv):
             eps = arg
         elif opt == "--min-pts":
             min_pts = arg
+        elif opt == "--target" and arg != '':
+            target_file = arg
 
     filename = os.path.basename(labels_file)
     name = os.path.splitext(filename)[0] 
-    return(labels_file, name, k, eps, min_pts)
+    return(labels_file, target_file, name, k, eps, min_pts)
 
-def read_labels(labels_file):
-    datatest = open(labels_file, "r")
-    lines = datatest.readlines()
+def read_labels(labels_file, target_file):
+    traindata = open(labels_file, "r")
+    lines = traindata.readlines()
     #print(lines[0])
     (n, dim) = lines[0].split()
-
-    labels = np.full((int(dim), int(n)), 0, dtype=np.double)
+    labels = np.full((int(n), int(dim)), 0, dtype=np.double)
     for i in range(1, int(n)):
         label = lines[i].split()
         for j in range(int(dim)):
-            labels[j][i-1] = label[j]
+            labels[i-1][j] = label[j]
+    traindata.close()
 
-    datatest.close()
-    return (labels_file.encode('utf-8'), labels, int(n), int(dim))
+    testdata = open(target_file, "r")
+    lines = testdata.readlines()
+    (n, dim) = lines[0].split()
+    target = np.full((int(n), int(dim)), 0, dtype=np.int)
+    for i in range(1, int(n)):
+        label = lines[i].split()
+        for j in range(int(dim)):
+            target[i-1][j] = label[j]
+    testdata.close()
+    return (labels_file.encode('utf-8'), labels, target, int(n), int(dim))
 
 def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
     ### output data
@@ -104,10 +115,11 @@ def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
 
 def assign_consecutive_labels(clusters, n):
     # Assigne consecutive numbers starting from 1 to the clusters with the exception of noise points
-    print (clusters)
+    #print (clusters)
     cluster_dict = {}
     np_counter = 1
     noise_points = False
+    clusters0 = np.full((int(n), 1), 0, dtype=int)
     for x in range(n):
         if clusters[0][x] > -1:
             if not clusters[0][x] in cluster_dict.keys():
@@ -118,37 +130,46 @@ def assign_consecutive_labels(clusters, n):
                 clusters[0][x] = cluster_dict[clusters[0][x]]
         else:
             noise_points = True
+        clusters0[x] = clusters[0][x]
     if noise_points:
         np_counter += 1
-    print("clusters ", cluster_dict)
-    return (clusters, np_counter-1)
+    #print("clusters ", cluster_dict)
+    return (clusters0, np_counter-1)
 
-def compute_rmse(labels, clusters, n, dim):
-    ### RMSE algo
-    data = {}
-    data['point'] = range(n)
-    data['cluster_id'] = [clusters[0][x] for x in range(n)]
-    data_columns = ['point', 'cluster_id']
-    for label_id in range(dim):
-        data['label_'+str(label_id)] = labels[label_id]
-        data_columns = np.append(data_columns, ['label_'+str(label_id)], axis=0)
+def prepare_data(labels, clusters):
+    X = labels
+    y = clusters
+    print(X.shape, y.shape)
+    feat_cols = [ 'label_'+str(i) for i in range(X.shape[1]) ]
 
-    df = DataFrame(data, columns=data_columns)
-    # dependent variable
-    y = df['cluster_id']
-    # independent variables
-    X = df[data_columns[2:]] #skip 'point' and 'cluster_id'
-    X = sm.add_constant(X)
-    print("X", X)
-    print("y", y)
+    df = DataFrame(labels, columns=feat_cols)
+    print(df.shape)
+    df['y'] = y
+    print(df.shape)
+    df['label'] = df['y'].apply(lambda i: str(i))
+    print(df.shape)
 
-    model = sm.OLS(y, X).fit()
-    predictions = model.predict(X)
-    print_model = model.summary()
+    np.random.seed(42)
+    rndperm = np.random.permutation(df.shape[0])
 
-    print(print_model)
-    print("RMSE:" + str(np.sqrt(mean_squared_error(predictions, y))))
-    print("MAE:" + str(mean_absolute_error(predictions, y)))
+    return (df, feat_cols, rndperm)
+
+def compute_rmse(labels, clusters, target, n, dim):
+    print(labels.shape, clusters.shape, target.shape)
+    if target.any():
+        model = sm.OLS(target, labels).fit()
+        predictions = model.predict(labels)
+        print_model = model.summary()
+        print("RMSE(clusters, target):" + str(np.sqrt(mean_squared_error(clusters, target))))
+        print("RMSE(clusters, predictions):" + str(np.sqrt(mean_squared_error(clusters, predictions))))
+        print("RMSE(target, predictions):" + str(np.sqrt(mean_squared_error(predictions, target))))
+        #print("MAE:" + str(mean_absolute_error(predictions, )))
+    
+    model = sm.OLS(clusters, labels).fit()
+    predictions = model.predict(labels)
+    print_modle = model.summary()
+    print("RMSE(clusters, predictions):" + str(np.sqrt(mean_squared_error(clusters, predictions))))
+    print("MAE:" + str(mean_absolute_error(predictions, clusters)))
 
     limit = 20
     if n < limit:
@@ -156,13 +177,22 @@ def compute_rmse(labels, clusters, n, dim):
     for x in range(limit):
         print(x, "prediction: ", predictions[x], "is: ", str(clusters[0][x]))
 
-    return (df, data_columns)
-
 def visualization(df, data_columns, filename, num_clusters, dim):
     np.random.seed(42)
     rndperm = np.random.permutation(df.shape[0])
     print("shape: ", df.shape[0])
-    features = data_columns[2:]
+    features = df['point']
+    print("features: ", features)
+
+    #plt.gray()
+    #fig0 = plt.figure(figsize = (16,7))
+    #for i in range(0, 15):
+    #    ax = fig0.add_subplot(3, 5, i+1, title="Digit:{}".format(str(df.loc[rndperm[i], 'cluster_id'])))
+
+    #ax.matshow(df.loc[rndperm[i], features].values.reshape((28,28)).astype(float))
+    ##ax.matshow(df.loc[rndperm[i], features].values.reshape((28,28)).astype(float))
+    #fig0.savefig(filename+'.png')
+
 
     #pca = PCA(n_components=3)
     #pca_result = pca.fit_transform(df[features].values)
@@ -179,12 +209,16 @@ def visualization(df, data_columns, filename, num_clusters, dim):
     #        )
     #fig.savefig(filename+str(k)+".png")
 
-    N = 10000
-    if N > df.shape[0]:
-        N = df.shape[0]
+        
+    #reduce space dimension to 50
     n_components = 50
     if dim < n_components:
         n_components=dim
+
+    #take a sampel of 10000 entries
+    N = 10000
+    if N > df.shape[0]:
+        N = df.shape[0]
     df_subset = df.loc[rndperm[:N],:].copy()
     data_subset = df_subset[features].values
 
@@ -273,17 +307,19 @@ def main(argv):
     ### load gunrock shared library - libgunrock
     gunrock = cdll.LoadLibrary('../build/lib/libgunrock.so')
     ### read input variables for SNN: labels file path, k, eps, min-pts
-    (labels_file, filename, k, eps, min_pts) = read_input(argv)
+    (labels_file, target_file, filename, k, eps, min_pts) = read_input(argv)
     ### read labels, n, dim
-    (labels_path, labels, n, dim) = read_labels(labels_file)
+    (labels_path, labels, target, n, dim) = read_labels(labels_file, target_file)
     ### run SNN Gunrock
     clusters = run_snn(gunrock, labels_path, n, dim, k, eps, min_pts)
     ### assign consecutive cluster labels except of noise points
     (clusters, num_clusters) = assign_consecutive_labels(clusters, n)
     ### run Ordinary Least Squares estimation, compute RMSE
-    (df, data_columns) = compute_rmse(labels, clusters, n, dim)
+    compute_rmse(labels, clusters, target, n, dim)
+    ### conver matrix and vector to a pandas dataframe
+    (df, feat_cols, rndperm) = prepare_data(labels, clusters) 
     ### run TSNE
-    visualization(df, data_columns, filename+str(k), num_clusters, dim)
+    #visualization(df, data_columns, filename+'_'+str(k)+'_'+str(eps)+'_'+str(min_pts), num_clusters, dim)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
