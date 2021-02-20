@@ -111,7 +111,7 @@ def run_snn(gunrock, labels, n, dim, k, eps, min_pts):
     if np_counter != noise_points_counter.contents.value:
         print("The noise points number claimed by SNN is ", noise_points_counter.contents.value, ". Returned data shows", np_counter)
 
-    return clusters
+    return (clusters, clusters_counter.contents.value, noise_points_counter.contents.value, core_points_counter.contents.value)
 
 def assign_consecutive_labels(clusters, n):
     # Assigne consecutive numbers starting from 1 to the clusters with the exception of noise points
@@ -119,6 +119,7 @@ def assign_consecutive_labels(clusters, n):
     cluster_dict = {}
     np_counter = 1
     noise_points = False
+    #clusters0 = np.full((1, int(n)), 0, dtype=int)
     clusters0 = np.full((int(n), 1), 0, dtype=int)
     for x in range(n):
         if clusters[0][x] > -1:
@@ -135,24 +136,6 @@ def assign_consecutive_labels(clusters, n):
         np_counter += 1
     #print("clusters ", cluster_dict)
     return (clusters0, np_counter-1)
-
-def prepare_data(labels, clusters):
-    X = labels
-    y = clusters
-    print(X.shape, y.shape)
-    feat_cols = [ 'label_'+str(i) for i in range(X.shape[1]) ]
-
-    df = DataFrame(labels, columns=feat_cols)
-    print(df.shape)
-    df['y'] = y
-    print(df.shape)
-    df['label'] = df['y'].apply(lambda i: str(i))
-    print(df.shape)
-
-    np.random.seed(42)
-    rndperm = np.random.permutation(df.shape[0])
-
-    return (df, feat_cols, rndperm)
 
 def compute_rmse(labels, clusters, target, n, dim):
     print(labels.shape, clusters.shape, target.shape)
@@ -175,41 +158,31 @@ def compute_rmse(labels, clusters, target, n, dim):
     if n < limit:
         limit = n
     for x in range(limit):
-        print(x, "prediction: ", predictions[x], "is: ", str(clusters[0][x]))
+        print(x, "prediction: ", predictions[x], "is: ", str(clusters[x]))
 
-def visualization(df, data_columns, filename, num_clusters, dim):
+    return (np.sqrt(mean_squared_error(clusters, target) ), 
+            np.sqrt(mean_squared_error(clusters, predictions)), 
+            np.sqrt(mean_squared_error(predictions, target)))
+
+def prepare_data(labels, clusters):
+    X = labels
+    y = clusters
+    print(X.shape, y.shape)
+    feat_cols = [ 'label_'+str(i) for i in range(X.shape[1]) ]
+
+    df = DataFrame(labels, columns=feat_cols)
+    print(df.shape)
+    df['y'] = clusters
+    print(df.shape)
+    df['label'] = df['y'].apply(lambda i: str(i))
+    print(df.shape)
+
     np.random.seed(42)
     rndperm = np.random.permutation(df.shape[0])
-    print("shape: ", df.shape[0])
-    features = df['point']
-    print("features: ", features)
 
-    #plt.gray()
-    #fig0 = plt.figure(figsize = (16,7))
-    #for i in range(0, 15):
-    #    ax = fig0.add_subplot(3, 5, i+1, title="Digit:{}".format(str(df.loc[rndperm[i], 'cluster_id'])))
+    return (df, feat_cols, rndperm)
 
-    #ax.matshow(df.loc[rndperm[i], features].values.reshape((28,28)).astype(float))
-    ##ax.matshow(df.loc[rndperm[i], features].values.reshape((28,28)).astype(float))
-    #fig0.savefig(filename+'.png')
-
-
-    #pca = PCA(n_components=3)
-    #pca_result = pca.fit_transform(df[features].values)
-    #df['pca-one'] = pca_result[:,0]
-    #df['pca-two'] = pca_result[:,1]
-    #df['pca-three'] = pca_result[:,2]
-    #fig = plt.figure(figsize=(16,10))
-    #print("number of colors ", num_clusters)
-    #sns.scatterplot(x="pca-one", y="pca-two", hue="cluster_id", 
-    #        palette=sns.color_palette("hls", n_colors=num_clusters),
-    #        data=df.loc[rndperm,:],
-    #        legend="full",
-    #        alpha=0.3
-    #        )
-    #fig.savefig(filename+str(k)+".png")
-
-        
+def visualization(df, rndperm, feat_cols, filename, num_clusters, dim):
     #reduce space dimension to 50
     n_components = 50
     if dim < n_components:
@@ -220,10 +193,10 @@ def visualization(df, data_columns, filename, num_clusters, dim):
     if N > df.shape[0]:
         N = df.shape[0]
     df_subset = df.loc[rndperm[:N],:].copy()
-    data_subset = df_subset[features].values
+    data_subset = df_subset[feat_cols].values
 
     # counting the number of clusters in the subset data
-    clusters_subset = df_subset['cluster_id'].values
+    clusters_subset = df_subset['y'].values
     number_of_colors = 0
     cluster_dict = {} 
     for i in clusters_subset:
@@ -236,19 +209,11 @@ def visualization(df, data_columns, filename, num_clusters, dim):
     pca = PCA(n_components=n_components)
     pca_result = pca.fit_transform(data_subset)
     df_subset['pca-one'] = pca_result[:,0]
-    df_subset['pca-two'] = pca_result[:,1]
-    df_subset['pca-three'] = pca_result[:,2]
+    if pca_result.any() > 1:
+        df_subset['pca-two'] = pca_result[:,1]
+        if pca_result.any() > 2:
+            df_subset['pca-three'] = pca_result[:,2]
     print('Explained variation per principal component: {}'.format(pca.explained_variance_ratio_))
-    #fig = plt.figure(figsize=(16,10))
-    #sns.scatterplot(
-    #    x="pca-one", y="pca-two",
-    #    hue="y",
-    #    palette=sns.color_palette("hls", n_colors=num_clusters),
-    #    data=df.loc[rndperm,:],
-    #    legend="full",
-    #    alpha=0.3
-    #    )
-    #fig.savefig(filename+'_pca'+str(n_components)+'.png')
   
     # TSNE 2 components on data subset
     time_start = time.time()
@@ -311,15 +276,27 @@ def main(argv):
     ### read labels, n, dim
     (labels_path, labels, target, n, dim) = read_labels(labels_file, target_file)
     ### run SNN Gunrock
-    clusters = run_snn(gunrock, labels_path, n, dim, k, eps, min_pts)
+    (clusters, nr_clusters, nr_noise, nr_cp) = run_snn(gunrock, labels_path, n, dim, k, eps, min_pts)
     ### assign consecutive cluster labels except of noise points
     (clusters, num_clusters) = assign_consecutive_labels(clusters, n)
     ### run Ordinary Least Squares estimation, compute RMSE
-    compute_rmse(labels, clusters, target, n, dim)
+    (r1, r2, r3) = compute_rmse(labels, clusters, target, n, dim)
     ### conver matrix and vector to a pandas dataframe
     (df, feat_cols, rndperm) = prepare_data(labels, clusters) 
+    output = open("result/"+filename+'_'+str(k)+'_'+str(eps)+'_'+str(min_pts), "w")
+    output.write("num_clusters: " + str(nr_clusters)+ "\n")
+    output.write("num_noises:   " + str(nr_noise)+    "\n")
+    output.write("num_core_points:" + str(nr_cp) +    "\n")
+    output.write("RMSE(clusters, target):" + str(r1)+   "\n")
+    output.write("RMSE(clusters, predictions):" + str(r2) +"\n")
+    output.write("RMSE(target, predictions):" + str(r3) +  "\n")
+    idx =0
+    for x in clusters:
+        output.write("clusters("+ str(idx)+ ")="+ str(x)+ "\n")
+        idx += 1
+    output.close()
     ### run TSNE
-    #visualization(df, data_columns, filename+'_'+str(k)+'_'+str(eps)+'_'+str(min_pts), num_clusters, dim)
+    ##visualization(df, rndperm, feat_cols, filename+'_'+str(k)+'_'+str(eps)+'_'+str(min_pts), num_clusters, dim)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
