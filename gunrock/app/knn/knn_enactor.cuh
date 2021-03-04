@@ -35,14 +35,14 @@
 #include <cub/block/block_radix_sort.cuh>
 
 //do not remove debug
+
 //#define KNN_ENACTOR_DEBUG
+
 #ifdef KNN_ENACTOR_DEBUG
     #define debug(a...) printf(a)
 #else
     #define debug(a...)
 #endif
-
-#define debug(a...)
 
 namespace gunrock {
 namespace app {
@@ -134,7 +134,7 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
     [num_points, k, dim, points, keys_out, transpose] 
     __device__ (ValueT* d, const SizeT &src, char* shared){
         ValueT* new_dist = (ValueT*)shared;
-        int* dist_key = (int*)(shared + (blockDim.x * 8));
+        int* dist_key = (int*)(shared + (blockDim.x * sizeof(ValueT)));
         dist_key[threadIdx.x] = src;
         for (SizeT i = 0; i<num_points; ++i){
             new_dist[threadIdx.x] = (ValueT)0;
@@ -172,11 +172,13 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
     [num_points, k, dim, points, keys_out, transpose, sem] 
     __device__ (ValueT* d, const SizeT &src, char* shared){
         ValueT* new_dist = (ValueT*)shared;
-        SizeT* new_keys = (SizeT*)(shared + (blockDim.x * 8));
+        SizeT* new_keys = (SizeT*)(shared + (blockDim.x * sizeof(ValueT)));
         
         int offset = (src/(blockDim.x*gridDim.x))*blockDim.x*gridDim.x;
+	debug("src = %d\n", src);
         for (SizeT i0 = offset; i0<num_points; ++i0){
             SizeT i = offset + ((i0 + blockIdx.x)%(num_points-offset));
+	    debug("thid: %d, src %d\n", threadIdx.x, src);
 
             if (i != src && src < num_points) {
                 new_dist[threadIdx.x] = euclidean_distance(dim, num_points, points.GetPointer(util::DEVICE), src, i, transpose);
@@ -517,7 +519,7 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
 
     if (! USE_SHARED_MEM){
     
-        debug("Used block size %d, grid size %d\n", block_size, grid_size);
+        debug("Shared mem not used. Block size %d, grid size %d\n", block_size, grid_size);
         
         // Calculating theoretical occupancy
         int maxActiveBlocks;
@@ -538,11 +540,13 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
 
     }else{
         
-        debug("Used threads %d, single data_size %d, shared memory %u, %d\n", block_size, data_size, shared_mem_size, sizeof(ValueT));
-        debug("points size = %d, dist_size = %d, keys_size = %d, shared_point_size = %d\n", points_size, 
-        dist_size, keys_size, shared_point_size);
+        debug("Shared mem in use. Block size %d, single data_size %d, shared memory %u, %d\n", block_size, data_size, shared_mem_size, sizeof(ValueT));
+        //debug("points size = %d, dist_size = %d, keys_size = %d, shared_point_size = %d\n", points_size, 
+        //dist_size, keys_size, shared_point_size);
+        debug("points size = %d, dist_size = %d, keys_size = %d\n", points_size, dist_size, keys_size);
 
         if (transpose){
+		debug("matrix transposed\n");
             
             // Points is transposed
             //N M
@@ -556,6 +560,7 @@ struct knnIterationLoop : public IterationLoopBase<EnactorT, Use_FullQ | Push> {
             // Insertion n-k elements into sorted list
             GUARD_CU2(distance_out.SharedForAll(knn_shared_transpose_op, num_points, target, stream, shared_mem_size, dim3(grid_size, 1, 1), dim3(block_size, 1, 1)), "shared for all failed");
         }else{
+		debug("matrix not transposed\n");
         
             // Points is not transposed
             //N M
